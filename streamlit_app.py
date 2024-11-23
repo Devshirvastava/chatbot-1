@@ -78,7 +78,7 @@ with st.sidebar:
     # Set other parameters
     temperature = st.sidebar.slider('Temperature', 0.01, 2.0, 0.7, 0.01)
     top_p = st.sidebar.slider('Top-p', 0.01, 1.0, 0.9, 0.01)
-    max_tokens = st.sidebar.slider('Max Tokens', 64, 2048, 120, 8)
+    max_tokens = st.sidebar.slider('Max Tokens', 64, 148, 120, 8)
 
 # Initialize session state for chat history
 if "messages" not in st.session_state:
