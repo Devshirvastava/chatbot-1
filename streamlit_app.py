@@ -1,56 +1,164 @@
 import streamlit as st
 from openai import OpenAI
+from settings import *
+import os
 
-# Show title and description.
-st.title("💬 Chatbot")
-st.write(
-    "This is a simple chatbot that uses OpenAI's GPT-3.5 model to generate responses. "
-    "To use this app, you need to provide an OpenAI API key, which you can get [here](https://platform.openai.com/account/api-keys). "
-    "You can also learn how to build this app step by step by [following our tutorial](https://docs.streamlit.io/develop/tutorials/llms/build-conversational-apps)."
+# App title
+st.set_page_config(page_title="Symtoms Chatbot")
+
+st.markdown(
+    """
+    <style>
+        body {
+            background-color: #edf2f7;
+            color: #1a202c;
+            font-family: 'Open Sans', sans-serif;
+        }
+        .chat-container {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
+        }
+        .user-message {
+            background-color: #fefcbf;
+            border-left: 5px solid #f6ad55;
+            padding: 10px;
+            margin-left: auto;
+            width: fit-content;
+            border-radius: 5px;
+        }
+        .assistant-message {
+            background-color: #c6f6d5;
+            border-left: 5px solid #48bb78;
+            padding: 10px;
+            border-radius: 5px;
+            width: fit-content;
+        }
+        .stTextInput > div {
+            border: 1px solid #cbd5e0;
+            border-radius: 6px;
+        }
+        .stButton button {
+            background-color: #3182ce;
+            color: white;
+            border-radius: 8px;
+        }
+        .stButton button:hover {
+            background-color: #2b6cb0;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+# Monster API Client (using the key set from environment variable)
+monster_client = OpenAI(
+    base_url="https://llm.monsterapi.ai/v1/",
+    api_key=str(MONSTER_API_KEY)  # Use the API key set in the environment
 )
 
-# Ask user for their OpenAI API key via `st.text_input`.
-# Alternatively, you can store the API key in `./.streamlit/secrets.toml` and access it
-# via `st.secrets`, see https://docs.streamlit.io/develop/concepts/connections/secrets-management
-openai_api_key = st.text_input("OpenAI API Key", type="password")
-if not openai_api_key:
-    st.info("Please add your OpenAI API key to continue.", icon="🗝️")
-else:
+# Sidebar setup for model selection and parameters
+with st.sidebar:
+    st.title('Symtoms Chatbot')
 
-    # Create an OpenAI client.
-    client = OpenAI(api_key=openai_api_key)
+    # Model selection
+    st.subheader('Models and parameters')
+    selected_model = st.sidebar.selectbox('Choose a Model', ['Meta-Llama', 'Google-Gemma', 'Mistral', 'Microsoft-Phi'])
 
-    # Create a session state variable to store the chat messages. This ensures that the
-    # messages persist across reruns.
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+    model_map = {
+        "Meta-Llama": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+        "Google-Gemma": "google/gemma-2-9b-it",
+        "Mistral": "mistralai/Mistral-7B-Instruct-v0.2",
+        "Microsoft-Phi": "microsoft/Phi-3-mini-4k-instruct"
+    }
+    model = model_map[selected_model]
 
-    # Display the existing chat messages via `st.chat_message`.
+    # Set other parameters
+    temperature = st.sidebar.slider('Temperature', 0.01, 2.0, 0.7, 0.01)
+    top_p = st.sidebar.slider('Top-p', 0.01, 1.0, 0.9, 0.01)
+    max_tokens = st.sidebar.slider('Max Tokens', 64, 2048, 120, 8)
+
+# Initialize session state for chat history
+if "messages" not in st.session_state:
+    st.session_state.messages = [{
+    "role": "assistant", 
+    "content": "Give/Explain the symtoms you are having:-"
+}]
+
+# Check for rerun trigger and handle it
+if "clear_chat_triggered" in st.session_state and st.session_state.clear_chat_triggered:
+    st.session_state.clear_chat_triggered = False
+    st.experimental_rerun()
+
+# Display chat history
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.write(message["content"])
+
+# Function to clear chat history
+def clear_chat_history():
+    st.session_state.messages = [ {"role": "assistant", "content": "You are a helpful assistant specialized in analyzing symptoms and providing basic recommendations. Please only answer questions related to health symptoms, their causes, and possible solutions. Do not answer unrelated queries.If you are asked questions about ny other topic please refrane from answer them "},]
+    st.session_state.clear_chat_triggered = True
+
+# Sidebar clear chat button
+st.sidebar.button('Clear Chat History', on_click=clear_chat_history)
+
+# Function for generating a response from the Monster API
+def generate_monster_response(prompt_input):
+    # Build up the dialogue context from the session history
+    dialogue_history = ""
     for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+        role = message["role"]
+        dialogue_history += f"{role.capitalize()}: {message['content']}\n"
 
-    # Create a chat input field to allow the user to enter a message. This will display
-    # automatically at the bottom of the page.
-    if prompt := st.chat_input("What is up?"):
+    try:
+        # Prepare the API call to Monster API
+        response = monster_client.chat.completions.create(
+    model=model,
+    messages=[
+        {"role": "assistant", "content": "You are a helpful assistant specialized in analyzing symptoms and providing basic recommendations. Please only answer questions related to health symptoms, their causes, and possible solutions. Do not answer unrelated queries.If you are asked questions about ny other topic please refrane from answer them"},
+        {"role": "user", "content": dialogue_history+prompt_input}
+    ],
+    temperature=temperature,
+    top_p=top_p,
+    max_tokens=max_tokens,
+    stream=False
+)
 
-        # Store and display the current prompt.
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+        # Debug: Print or log the response for inspection
+        st.write(response)  # Remove this in production if unnecessary
 
-        # Generate a response using the OpenAI API.
-        stream = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": m["role"], "content": m["content"]}
-                for m in st.session_state.messages
-            ],
-            stream=True,
-        )
+        # Extract the assistant's response from the API response
+        if response.choices and hasattr(response.choices[0].message, "content"):
+            return response.choices[0].message.content  # Accessing the content as an attribute
+        else:
+            return "No response generated. Please try again."
 
-        # Stream the response to the chat using `st.write_stream`, then store it in 
-        # session state.
-        with st.chat_message("assistant"):
-            response = st.write_stream(stream)
-        st.session_state.messages.append({"role": "assistant", "content": response})
+    except Exception as e:
+        # Handle and display any errors that occur during the API call
+        error_message = f"Error connecting to the Monster API: {e}"
+        st.error(error_message)
+        # Log the error for debugging
+        print(error_message)
+        # Return a fallback message
+        return "Sorry, I couldn't connect to the API. Please try again later."
+    
+    
+# Handle user input
+if prompt := st.chat_input():
+    # Add user's prompt to session state
+    st.session_state.messages.append({"role": "user", "content": prompt})
+
+    with st.chat_message("user"):
+        st.write(prompt)
+
+    # Generate response from Monster API
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
+            response = generate_monster_response(prompt)  # Get the assistant's response
+            st.write(response)
+
+    # Add assistant's response to session state
+    st.session_state.messages.append({"role": "assistant", "content": response})
